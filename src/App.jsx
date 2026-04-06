@@ -52,8 +52,6 @@ const P = {
   dim:     "#555",
 };
 
-const eScores  = () => Object.fromEntries(JUDGES.map(j => [j.id, ""]));
-const eReviews = () => Object.fromEntries(JUDGES.map(j => [j.id, ""]));
 const getMedal = (i) => ["🥇","🥈","🥉"][i] ?? `${i+1}°`;
 
 const parse = (str) => {
@@ -90,16 +88,22 @@ const scoreGold = (s) => {
 /* ─────────────────────────────────────────
    Sub-components
 ───────────────────────────────────────── */
-function ScoreBadge({ value }) {
+function ScoreBadge({ value, onClick, hasReview }) {
   const s = typeof value === "number" ? value : parse(value);
   const { c, bg, b } = scoreGold(s);
   return (
-    <span style={{
-      display: "inline-flex", alignItems: "center", justifyContent: "center",
-      minWidth: 48, padding: "4px 8px", borderRadius: 6,
-      background: bg, color: c, border: `1px solid ${b}`,
-      fontSize: 13, fontWeight: 700, fontFamily: "monospace", letterSpacing: .5,
-    }}>
+    <span
+      onClick={onClick}
+      style={{
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
+        minWidth: 48, padding: "4px 8px", borderRadius: 6,
+        background: bg, color: c,
+        border: `1px solid ${b}`,
+        borderBottom: hasReview && s != null ? `2px solid ${c}` : `1px solid ${b}`,
+        fontSize: 13, fontWeight: 700, fontFamily: "monospace", letterSpacing: .5,
+        cursor: onClick ? "pointer" : "default",
+      }}
+    >
       {fmt(s)}
     </span>
   );
@@ -125,34 +129,60 @@ function AvgBadge({ value, big }) {
   );
 }
 
-function ReviewAccordion({ judge, review }) {
-  const [open, setOpen] = useState(false);
-  if (!review) return null;
+function ReviewPopover({ judge, score, review, onClose }) {
   return (
-    <div style={{ marginTop: 6 }}>
-      <button
-        onClick={() => setOpen(o => !o)}
+    <div
+      style={{
+        position: "fixed", inset: 0, zIndex: 100,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        background: "rgba(0,0,0,.75)", padding: 20,
+      }}
+      onClick={onClose}
+    >
+      <div
         style={{
-          background: "none", border: `1px solid ${P.border}`, borderRadius: 6,
-          color: P.muted, fontSize: 12, cursor: "pointer", padding: "4px 10px",
-          display: "flex", alignItems: "center", gap: 5,
-          transition: "border-color .15s",
+          background: "#1e1e1e", border: `1px solid ${P.gold}`,
+          borderRadius: 14, padding: "22px 24px", maxWidth: 400, width: "100%",
+          boxShadow: "0 8px 40px rgba(0,0,0,.9)",
         }}
-        onMouseEnter={e => e.currentTarget.style.borderColor = P.gold}
-        onMouseLeave={e => e.currentTarget.style.borderColor = P.border}
+        onClick={e => e.stopPropagation()}
       >
-        {judge.emoji} reseña de {judge.name} {open ? "▲" : "▼"}
-      </button>
-      {open && (
-        <div style={{
-          marginTop: 6, padding: "10px 14px",
-          background: "#1e1e1e", borderLeft: `3px solid ${P.gold}`,
-          borderRadius: "0 8px 8px 0", fontSize: 13, color: "#ccc",
-          lineHeight: 1.7, fontFamily: "'Lora', serif", fontStyle: "italic",
-        }}>
-          "{review}"
+        <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16 }}>
+          <span style={{ fontSize: 36, lineHeight: 1 }}>{judge.emoji}</span>
+          <div>
+            <div style={{ fontFamily: "'Oswald', sans-serif", fontSize: 20, fontWeight: 700, color: P.gold, textTransform: "uppercase", letterSpacing: 1 }}>
+              {judge.name}
+            </div>
+            <ScoreBadge value={score} />
+          </div>
         </div>
-      )}
+
+        {review ? (
+          <div style={{
+            padding: "12px 16px",
+            background: "#161616", borderLeft: `3px solid ${P.gold}`,
+            borderRadius: "0 8px 8px 0", fontSize: 14, color: "#ccc",
+            lineHeight: 1.75, fontFamily: "'Lora', serif", fontStyle: "italic",
+          }}>
+            "{review}"
+          </div>
+        ) : (
+          <div style={{ color: P.muted, fontStyle: "italic", fontSize: 13, padding: "10px 0" }}>
+            Sin reseña.
+          </div>
+        )}
+
+        <button
+          onClick={onClose}
+          style={{
+            marginTop: 16, width: "100%", padding: "10px",
+            background: "transparent", border: `1px solid ${P.border}`,
+            borderRadius: 8, color: P.muted, fontSize: 13, cursor: "pointer",
+          }}
+        >
+          Cerrar
+        </button>
+      </div>
     </div>
   );
 }
@@ -183,22 +213,19 @@ function SyncStatus({ status }) {
    MAIN APP
 ───────────────────────────────────────── */
 export default function App() {
-  const [burgers, setBurgers]     = useState([]);
-  const [syncStatus, setSyncStatus] = useState("loading");
-  const [form, setForm]           = useState({ name: "", scores: eScores(), reviews: eReviews() });
-  const [editId, setEditId]       = useState(null);
-  const [submitted, setSubmitted] = useState(false);
-  const [delId, setDelId]         = useState(null);
-  const [judgeTab, setJudgeTab]   = useState(JUDGES[0].id);
-  const [mainTab, setMainTab]     = useState("agregar");
-  const saveTimeout               = useRef(null);
+  const [burgers, setBurgers]             = useState([]);
+  const [syncStatus, setSyncStatus]       = useState("loading");
+  const [form, setForm]                   = useState({ name: "", score: "", review: "" });
+  const [selectedJudge, setSelectedJudge] = useState(JUDGES[0].id);
+  const [submitted, setSubmitted]         = useState(false);
+  const [delId, setDelId]                 = useState(null);
+  const [mainTab, setMainTab]             = useState("agregar");
+  const [activeReview, setActiveReview]   = useState(null); // { burger, judgeId }
+  const saveTimeout                       = useRef(null);
 
   /* ── Load from JSONBin on mount ── */
   useEffect(() => {
-    if (!BIN_KEY || !BIN_ID) {
-      setSyncStatus("error");
-      return;
-    }
+    if (!BIN_KEY || !BIN_ID) { setSyncStatus("error"); return; }
     setSyncStatus("loading");
     fetchRemote()
       .then(data => { setBurgers(data); setSyncStatus("ok"); })
@@ -208,7 +235,6 @@ export default function App() {
   /* ── Debounced push to JSONBin ── */
   const persistAndSync = useCallback((next) => {
     setBurgers(next);
-    // optimistic UI — show saving immediately
     setSyncStatus("saving");
     clearTimeout(saveTimeout.current);
     saveTimeout.current = setTimeout(() => {
@@ -218,48 +244,60 @@ export default function App() {
     }, 600);
   }, []);
 
-  /* ── Validation ── */
-  const errors = {};
-  JUDGES.forEach(j => {
-    const raw = form.scores[j.id];
-    if (submitted && !raw && raw !== 0) { errors[j.id] = "Falta"; return; }
-    if (raw && parse(raw) === null) errors[j.id] = "0–10";
-  });
+  const judge    = JUDGES.find(j => j.id === selectedJudge);
+  const scoreVal = parse(form.score);
+  const scoreErr = submitted && form.score && scoreVal === null ? "0–10" : null;
+  const canSubmit = form.name.trim() && scoreVal !== null;
 
-  const allScored  = JUDGES.every(j => parse(form.scores[j.id]) !== null);
-  const canSubmit  = form.name.trim() && allScored && !Object.keys(errors).length;
-  const previewAvg = allScored
-    ? calcAvg(Object.fromEntries(JUDGES.map(j => [j.id, parse(form.scores[j.id])])))
-    : null;
-  const activeJ = JUDGES.find(j => j.id === judgeTab);
+  // Whether the typed name matches an existing entry
+  const existingMatch = burgers.find(b =>
+    b.name.toLowerCase() === form.name.trim().toLowerCase()
+  );
 
-  /* ── Handlers ── */
+  /* ── Submit: merge into existing or create new ── */
   const handleSubmit = () => {
     setSubmitted(true);
     if (!canSubmit) return;
-    const entry = {
-      id: editId || Date.now(),
-      name: form.name.trim(),
-      scores: Object.fromEntries(JUDGES.map(j => [j.id, parse(form.scores[j.id])])),
-      reviews: { ...form.reviews },
-    };
-    const next = editId
-      ? burgers.map(b => b.id === editId ? entry : b)
-      : [...burgers, entry];
+
+    const name   = form.name.trim();
+    const score  = scoreVal;
+    const review = form.review.trim();
+
+    const emptyScores  = Object.fromEntries(JUDGES.map(j => [j.id, null]));
+    const emptyReviews = Object.fromEntries(JUDGES.map(j => [j.id, ""]));
+
+    let next;
+    if (existingMatch) {
+      next = burgers.map(b => b.id === existingMatch.id ? {
+        ...b,
+        scores:  { ...b.scores,  [selectedJudge]: score },
+        reviews: { ...(b.reviews ?? emptyReviews), [selectedJudge]: review },
+      } : b);
+    } else {
+      next = [...burgers, {
+        id: Date.now(),
+        name,
+        scores:  { ...emptyScores,  [selectedJudge]: score },
+        reviews: { ...emptyReviews, [selectedJudge]: review },
+      }];
+    }
+
     persistAndSync(next);
-    setForm({ name: "", scores: eScores(), reviews: eReviews() });
-    setEditId(null); setSubmitted(false); setJudgeTab(JUDGES[0].id);
+    setForm({ name: "", score: "", review: "" });
+    setSubmitted(false);
     setMainTab("tabla");
   };
 
-  const handleEdit = (b) => {
-    setEditId(b.id);
+  /* ── Edit: pre-fill form with a specific judge's score ── */
+  const handleEditScore = (burger, judgeId) => {
+    setSelectedJudge(judgeId);
     setForm({
-      name: b.name,
-      scores: Object.fromEntries(JUDGES.map(j => [j.id, String(b.scores[j.id] ?? "").replace(".", ",")])),
-      reviews: { ...b.reviews },
+      name:   burger.name,
+      score:  burger.scores[judgeId] != null ? String(burger.scores[judgeId]).replace(".", ",") : "",
+      review: burger.reviews?.[judgeId] ?? "",
     });
-    setSubmitted(false); setJudgeTab(JUDGES[0].id); setMainTab("agregar");
+    setSubmitted(false);
+    setMainTab("agregar");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -268,13 +306,6 @@ export default function App() {
     setDelId(null);
   };
 
-  const handleCancel = () => {
-    setEditId(null);
-    setForm({ name: "", scores: eScores(), reviews: eReviews() });
-    setSubmitted(false);
-  };
-
-  /* ── Refresh manual ── */
   const handleRefresh = () => {
     setSyncStatus("loading");
     fetchRemote()
@@ -282,13 +313,24 @@ export default function App() {
       .catch(() => setSyncStatus("error"));
   };
 
-  const sorted = [...burgers].sort((a, b) => (calcAvg(b.scores) ?? 0) - (calcAvg(a.scores) ?? 0));
+  const sorted       = [...burgers].sort((a, b) => (calcAvg(b.scores) ?? 0) - (calcAvg(a.scores) ?? 0));
+  const existingNames = burgers.map(b => b.name);
 
   /* ─────────────────────────────────────────
      RENDER
   ───────────────────────────────────────── */
   return (
     <div style={{ minHeight: "100vh", background: P.carbon, color: P.bone, fontFamily: "'Barlow', sans-serif" }}>
+
+      {/* ── Review popover ── */}
+      {activeReview && (
+        <ReviewPopover
+          judge={JUDGES.find(j => j.id === activeReview.judgeId)}
+          score={activeReview.burger.scores[activeReview.judgeId]}
+          review={activeReview.burger.reviews?.[activeReview.judgeId]}
+          onClose={() => setActiveReview(null)}
+        />
+      )}
 
       {/* ── HEADER ── */}
       <header className="mh-texture" style={{
@@ -340,7 +382,7 @@ export default function App() {
       <nav style={{ background: "#111", borderBottom: `1px solid ${P.border}`, position: "sticky", top: 0, zIndex: 20 }}>
         <div style={{ maxWidth: 860, margin: "0 auto", display: "flex" }}>
           {[
-            { id: "agregar", icon: "➕", label: editId ? "Editando" : "Agregar" },
+            { id: "agregar", icon: "➕", label: "Agregar" },
             { id: "tabla",   icon: "🏆", label: `Tabla${burgers.length ? ` · ${burgers.length}` : ""}` },
           ].map(t => (
             <button key={t.id} className="mh-tab" onClick={() => setMainTab(t.id)} style={{
@@ -364,17 +406,10 @@ export default function App() {
         {mainTab === "agregar" && (
           <div className="mh-in">
 
-            {/* Offline warning */}
             {syncStatus === "error" && (
               <div style={{ background: "rgba(178,34,34,.12)", border: `1px solid rgba(178,34,34,.4)`, borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: "#f87171", display: "flex", gap: 8 }}>
                 <span>⚠️</span>
                 <span>Sin conexión con el servidor. Los cambios se guardarán cuando vuelva la conexión. Revisá las variables de entorno en Vercel.</span>
-              </div>
-            )}
-
-            {editId && (
-              <div style={{ background: "rgba(212,175,55,.08)", border: `1px solid rgba(212,175,55,.3)`, borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: P.gold, fontWeight: 600, display: "flex", gap: 8 }}>
-                <span>✏️</span><span>Editando: <strong>{form.name || "—"}</strong></span>
               </div>
             )}
 
@@ -383,19 +418,47 @@ export default function App() {
               <div style={{ background: "#1e1e1e", borderBottom: `1px solid ${P.border}`, padding: "16px 20px", display: "flex", alignItems: "center", gap: 10 }}>
                 <span style={{ color: P.gold, fontSize: 20 }}>🍔</span>
                 <span style={{ fontFamily: "'Oswald', sans-serif", fontSize: 18, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, color: P.bone }}>
-                  {editId ? "Editar hamburguesería" : "Nueva hamburguesería"}
+                  Cargar mi puntaje
                 </span>
               </div>
 
               <div style={{ padding: "20px" }}>
 
-                {/* Nombre */}
+                {/* ¿Quién sos? */}
                 <div style={{ marginBottom: 24 }}>
+                  <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: P.gold, letterSpacing: 2, textTransform: "uppercase", marginBottom: 10 }}>
+                    ¿Quién sos?
+                  </label>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {JUDGES.map(j => (
+                      <button
+                        key={j.id}
+                        onClick={() => setSelectedJudge(j.id)}
+                        style={{
+                          padding: "10px 16px", borderRadius: 10, cursor: "pointer",
+                          border: `1.5px solid ${selectedJudge === j.id ? P.gold : P.border}`,
+                          background: selectedJudge === j.id ? "rgba(212,175,55,.12)" : "transparent",
+                          color: selectedJudge === j.id ? P.gold : P.muted,
+                          fontSize: 14, fontWeight: 700,
+                          display: "flex", alignItems: "center", gap: 8,
+                          transition: "border-color .15s, background .15s",
+                        }}
+                      >
+                        <span style={{ fontSize: 20 }}>{j.emoji}</span>
+                        <span>{j.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Nombre del local */}
+                <div style={{ marginBottom: 20 }}>
                   <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: P.gold, letterSpacing: 2, textTransform: "uppercase", marginBottom: 8 }}>
                     Nombre del local
                   </label>
                   <input
                     className="mh-input"
+                    list="burger-names"
                     value={form.name}
                     onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
                     placeholder="ej: Big Pons, Fat Broder, Los Caminantes..."
@@ -406,151 +469,93 @@ export default function App() {
                       borderRadius: 10, color: P.bone, fontSize: 16, fontWeight: 500,
                     }}
                   />
+                  <datalist id="burger-names">
+                    {existingNames.map(n => <option key={n} value={n} />)}
+                  </datalist>
                   {submitted && !form.name.trim() && (
                     <span style={{ color: P.red, fontSize: 12, marginTop: 5, display: "block" }}>⚠ Ingresá el nombre</span>
                   )}
-                </div>
-
-                {/* Judge tabs */}
-                <div style={{ marginBottom: 0 }}>
-                  <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: P.gold, letterSpacing: 2, textTransform: "uppercase", marginBottom: 12 }}>
-                    Puntaje por jurado
-                  </label>
-
-                  {/* Tab strip */}
-                  <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4, scrollbarWidth: "none", marginBottom: 16 }}>
-                    {JUDGES.map(j => {
-                      const s   = parse(form.scores[j.id]);
-                      const err = errors[j.id];
-                      const act = judgeTab === j.id;
-                      return (
-                        <button key={j.id} className="mh-judge-btn" onClick={() => setJudgeTab(j.id)} style={{
-                          flexShrink: 0,
-                          padding: "8px 14px", borderRadius: 8, cursor: "pointer",
-                          border: `1.5px solid ${err ? P.red : act ? P.gold : s !== null ? "rgba(212,175,55,.35)" : P.border}`,
-                          background: act ? "rgba(212,175,55,.1)" : "transparent",
-                          color: err ? P.red : act ? P.gold : s !== null ? "#c9a830" : P.muted,
-                          fontSize: 13, fontWeight: 700,
-                          display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap",
-                        }}>
-                          <span>{j.emoji}</span>
-                          <span>{j.name}</span>
-                          {s !== null && !err && (
-                            <span style={{ fontFamily: "monospace", fontSize: 11, background: "rgba(212,175,55,.15)", color: P.gold, borderRadius: 4, padding: "1px 6px" }}>
-                              {fmt(s)}
-                            </span>
-                          )}
-                          {err && <span>⚠️</span>}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {/* Active judge panel */}
-                  <div style={{ background: "#1a1a1a", border: `1px solid ${P.border}`, borderLeft: `3px solid ${P.gold}`, borderRadius: "0 12px 12px 0", padding: "18px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18 }}>
-                      <span style={{ fontSize: 36, lineHeight: 1, filter: "drop-shadow(0 0 8px rgba(212,175,55,.3))" }}>{activeJ.emoji}</span>
-                      <div>
-                        <div style={{ fontFamily: "'Oswald', sans-serif", fontSize: 22, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, color: P.gold }}>{activeJ.name}</div>
-                        <div style={{ fontSize: 12, color: P.muted }}>Ingresá tu puntaje y reseña</div>
-                      </div>
-                    </div>
-
-                    {/* Score */}
-                    <div style={{ marginBottom: 18 }}>
-                      <label style={{ display: "block", fontSize: 11, color: P.muted, letterSpacing: 2, textTransform: "uppercase", marginBottom: 8 }}>
-                        Puntaje (0–10 · podés usar coma: 8,50)
-                      </label>
-                      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                        <input
-                          className="mh-input"
-                          type="text" inputMode="decimal"
-                          value={form.scores[activeJ.id]}
-                          onChange={e => setForm(f => ({ ...f, scores: { ...f.scores, [activeJ.id]: e.target.value } }))}
-                          placeholder="8,50"
-                          maxLength={5}
-                          style={{
-                            width: 90, padding: "12px",
-                            background: "#111",
-                            border: `1.5px solid ${errors[activeJ.id] ? P.red : form.scores[activeJ.id] ? P.gold : P.border}`,
-                            borderRadius: 10,
-                            color: scoreGold(parse(form.scores[activeJ.id])).c,
-                            fontSize: 24, fontWeight: 800, textAlign: "center", fontFamily: "monospace",
-                          }}
-                        />
-                        <span style={{ color: P.dim, fontSize: 14 }}>/10</span>
-                        {errors[activeJ.id] && <span style={{ color: P.red, fontSize: 12, fontWeight: 600 }}>⚠ {errors[activeJ.id]}</span>}
-                        {parse(form.scores[activeJ.id]) !== null && !errors[activeJ.id] && (
-                          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5, textTransform: "uppercase", color: scoreGold(parse(form.scores[activeJ.id])).c }}>
-                            {scoreLabel(parse(form.scores[activeJ.id]))}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Review */}
-                    <div>
-                      <label style={{ display: "block", fontSize: 11, color: P.muted, letterSpacing: 2, textTransform: "uppercase", marginBottom: 8 }}>
-                        Reseña (opcional)
-                      </label>
-                      <textarea
-                        className="mh-textarea"
-                        value={form.reviews[activeJ.id]}
-                        onChange={e => setForm(f => ({ ...f, reviews: { ...f.reviews, [activeJ.id]: e.target.value } }))}
-                        placeholder={`¿Qué te pareció, ${activeJ.name}? La carne, el pan, las salsas...`}
-                        rows={3}
-                        style={{
-                          width: "100%", padding: "12px 14px",
-                          background: "#111", border: `1.5px solid ${P.border}`,
-                          borderRadius: 10, color: "#ddd", fontSize: 14, lineHeight: 1.6,
-                        }}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Preview promedio */}
-                {previewAvg !== null && form.name.trim() && (
-                  <div style={{ marginTop: 20, background: "rgba(212,175,55,.06)", border: `1px solid rgba(212,175,55,.2)`, borderRadius: 12, padding: "14px 16px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-                      <div>
-                        <div style={{ fontSize: 10, color: P.muted, textTransform: "uppercase", letterSpacing: 2, marginBottom: 4 }}>Promedio actual</div>
-                        <AvgBadge value={previewAvg} big />
-                      </div>
-                      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                        {JUDGES.map(j => { const s = parse(form.scores[j.id]); return s !== null ? (
-                          <div key={j.id} style={{ textAlign: "center" }}>
-                            <div style={{ fontSize: 20, marginBottom: 2 }}>{j.emoji}</div>
-                            <ScoreBadge value={s} />
-                          </div>
-                        ) : null; })}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Buttons */}
-                <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
-                  <button className="mh-btn-primary" onClick={handleSubmit} style={{
-                    flex: 1, padding: "15px 20px",
-                    background: `linear-gradient(135deg, ${P.gold}, #f0c840)`,
-                    border: "none", borderRadius: 10,
-                    color: "#111", fontSize: 14, fontWeight: 800, cursor: "pointer",
-                    textTransform: "uppercase", letterSpacing: 1.5,
-                    boxShadow: "0 4px 20px rgba(212,175,55,.3)",
-                  }}>
-                    {editId ? "💾 Guardar" : "🏆 Agregar al mundial"}
-                  </button>
-                  {editId && (
-                    <button onClick={handleCancel} style={{
-                      padding: "15px 18px", background: "transparent",
-                      border: `1px solid ${P.border}`, borderRadius: 10,
-                      color: P.muted, fontSize: 13, fontWeight: 600, cursor: "pointer",
-                    }}>
-                      Cancelar
-                    </button>
+                  {form.name.trim() && existingMatch && (
+                    <span style={{ color: P.gold, fontSize: 12, marginTop: 5, display: "block", opacity: .8 }}>
+                      ✓ Actualizando entrada existente
+                    </span>
                   )}
                 </div>
+
+                {/* Active judge panel */}
+                <div style={{ background: "#1a1a1a", border: `1px solid ${P.border}`, borderLeft: `3px solid ${P.gold}`, borderRadius: "0 12px 12px 0", padding: "18px", marginBottom: 20 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18 }}>
+                    <span style={{ fontSize: 36, lineHeight: 1, filter: "drop-shadow(0 0 8px rgba(212,175,55,.3))" }}>{judge.emoji}</span>
+                    <div>
+                      <div style={{ fontFamily: "'Oswald', sans-serif", fontSize: 22, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, color: P.gold }}>{judge.name}</div>
+                      <div style={{ fontSize: 12, color: P.muted }}>Ingresá tu puntaje y reseña</div>
+                    </div>
+                  </div>
+
+                  {/* Score */}
+                  <div style={{ marginBottom: 18 }}>
+                    <label style={{ display: "block", fontSize: 11, color: P.muted, letterSpacing: 2, textTransform: "uppercase", marginBottom: 8 }}>
+                      Puntaje (0–10 · podés usar coma: 8,50)
+                    </label>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                      <input
+                        className="mh-input"
+                        type="text" inputMode="decimal"
+                        value={form.score}
+                        onChange={e => setForm(f => ({ ...f, score: e.target.value }))}
+                        placeholder="8,50"
+                        maxLength={5}
+                        style={{
+                          width: 90, padding: "12px",
+                          background: "#111",
+                          border: `1.5px solid ${scoreErr ? P.red : form.score ? P.gold : P.border}`,
+                          borderRadius: 10,
+                          color: scoreGold(scoreVal).c,
+                          fontSize: 24, fontWeight: 800, textAlign: "center", fontFamily: "monospace",
+                        }}
+                      />
+                      <span style={{ color: P.dim, fontSize: 14 }}>/10</span>
+                      {scoreErr && <span style={{ color: P.red, fontSize: 12, fontWeight: 600 }}>⚠ {scoreErr}</span>}
+                      {submitted && !form.score && <span style={{ color: P.red, fontSize: 12, fontWeight: 600 }}>⚠ Ingresá un puntaje</span>}
+                      {scoreVal !== null && !scoreErr && (
+                        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5, textTransform: "uppercase", color: scoreGold(scoreVal).c }}>
+                          {scoreLabel(scoreVal)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Review */}
+                  <div>
+                    <label style={{ display: "block", fontSize: 11, color: P.muted, letterSpacing: 2, textTransform: "uppercase", marginBottom: 8 }}>
+                      Reseña (opcional)
+                    </label>
+                    <textarea
+                      className="mh-textarea"
+                      value={form.review}
+                      onChange={e => setForm(f => ({ ...f, review: e.target.value }))}
+                      placeholder={`¿Qué te pareció, ${judge.name}? La carne, el pan, las salsas...`}
+                      rows={3}
+                      style={{
+                        width: "100%", padding: "12px 14px",
+                        background: "#111", border: `1.5px solid ${P.border}`,
+                        borderRadius: 10, color: "#ddd", fontSize: 14, lineHeight: 1.6,
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Submit */}
+                <button className="mh-btn-primary" onClick={handleSubmit} style={{
+                  width: "100%", padding: "15px 20px",
+                  background: `linear-gradient(135deg, ${P.gold}, #f0c840)`,
+                  border: "none", borderRadius: 10,
+                  color: "#111", fontSize: 14, fontWeight: 800, cursor: "pointer",
+                  textTransform: "uppercase", letterSpacing: 1.5,
+                  boxShadow: "0 4px 20px rgba(212,175,55,.3)",
+                }}>
+                  🏆 Guardar mi puntaje
+                </button>
               </div>
             </div>
           </div>
@@ -606,8 +611,9 @@ export default function App() {
 
                 {/* Cards */}
                 {sorted.map((burger, index) => {
-                  const score = calcAvg(burger.scores);
-                  const isTop = index === 0;
+                  const avg      = calcAvg(burger.scores);
+                  const isTop    = index === 0;
+                  const voted    = JUDGES.filter(j => burger.scores[j.id] != null).length;
                   return (
                     <div key={burger.id} className="mh-row" style={{
                       background: isTop ? "rgba(212,175,55,.06)" : P.surface,
@@ -615,6 +621,7 @@ export default function App() {
                       borderLeft: `4px solid ${isTop ? P.gold : index === 1 ? "#aaa" : index === 2 ? "#cd853f" : P.border}`,
                       borderRadius: 12, marginBottom: 10, overflow: "hidden",
                     }}>
+
                       {/* Top row */}
                       <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px" }}>
                         <div style={{ fontSize: index < 3 ? 26 : 16, fontWeight: 800, minWidth: 36, textAlign: "center", color: index < 3 ? "inherit" : P.dim }}>
@@ -624,54 +631,80 @@ export default function App() {
                           <div style={{ fontFamily: "'Oswald', sans-serif", fontSize: 17, fontWeight: 700, color: isTop ? P.gold : P.bone, textTransform: "uppercase", letterSpacing: .5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             {burger.name}
                           </div>
+                          <div style={{ fontSize: 11, color: P.muted, marginTop: 2 }}>
+                            {voted}/{JUDGES.length} votos
+                          </div>
                         </div>
-                        <AvgBadge value={score} big={false} />
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
+                          <AvgBadge value={avg} big={false} />
+                          <span style={{ fontSize: 10, color: P.muted }}>promedio</span>
+                        </div>
                       </div>
 
-                      {/* Judge scores grid */}
+                      {/* Judge scores grid — click to see review */}
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 0, borderTop: `1px solid ${P.border}` }}>
-                        {JUDGES.map((j, ji) => (
-                          <div key={j.id} style={{ padding: "10px 6px", textAlign: "center", borderRight: ji < 3 ? `1px solid ${P.border}` : "none" }}>
-                            <div style={{ fontSize: 16, marginBottom: 4 }}>{j.emoji}</div>
-                            <div style={{ fontSize: 11, color: P.muted, marginBottom: 4, fontWeight: 600 }}>{j.name}</div>
-                            <ScoreBadge value={burger.scores[j.id]} />
-                          </div>
-                        ))}
+                        {JUDGES.map((j, ji) => {
+                          const s         = burger.scores[j.id];
+                          const hasReview = !!(burger.reviews?.[j.id]);
+                          const clickable = s != null;
+                          return (
+                            <div
+                              key={j.id}
+                              style={{
+                                padding: "10px 6px", textAlign: "center",
+                                borderRight: ji < 3 ? `1px solid ${P.border}` : "none",
+                                cursor: clickable ? "pointer" : "default",
+                                transition: "background .15s",
+                              }}
+                              onClick={clickable ? () => setActiveReview({ burger, judgeId: j.id }) : undefined}
+                              onMouseEnter={e => { if (clickable) e.currentTarget.style.background = "rgba(212,175,55,.05)"; }}
+                              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
+                            >
+                              <div style={{ fontSize: 16, marginBottom: 4 }}>{j.emoji}</div>
+                              <div style={{ fontSize: 11, color: P.muted, marginBottom: 4, fontWeight: 600 }}>{j.name}</div>
+                              <ScoreBadge value={s} hasReview={hasReview} onClick={clickable ? () => setActiveReview({ burger, judgeId: j.id }) : undefined} />
+                              {hasReview && s != null && (
+                                <div style={{ fontSize: 9, color: P.gold, marginTop: 3, opacity: .6, letterSpacing: .5 }}>reseña</div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
 
-                      {/* Reviews + actions */}
-                      <div style={{ padding: "10px 16px 12px", borderTop: `1px solid ${P.border}`, display: "flex", flexDirection: "column", gap: 6 }}>
-                        {JUDGES.some(j => burger.reviews?.[j.id]) && (
-                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                            {JUDGES.map(j => burger.reviews?.[j.id]
-                              ? <ReviewAccordion key={j.id} judge={j} review={burger.reviews[j.id]} />
-                              : null
-                            )}
-                          </div>
-                        )}
-                        <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-                          <button onClick={() => handleEdit(burger)}
-                            style={{ padding: "6px 14px", background: "transparent", border: `1px solid ${P.border}`, borderRadius: 7, color: P.muted, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+                      {/* Actions: edit per judge + delete */}
+                      <div style={{ padding: "8px 16px 10px", borderTop: `1px solid ${P.border}`, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                        {JUDGES.map(j => (
+                          <button
+                            key={j.id}
+                            onClick={() => handleEditScore(burger, j.id)}
+                            title={`Editar puntaje de ${j.name}`}
+                            style={{
+                              padding: "5px 10px", background: "transparent",
+                              border: `1px solid ${P.border}`, borderRadius: 6,
+                              color: P.muted, fontSize: 11, fontWeight: 600, cursor: "pointer",
+                              display: "flex", alignItems: "center", gap: 4,
+                            }}
                             onMouseEnter={e => e.currentTarget.style.borderColor = P.gold}
                             onMouseLeave={e => e.currentTarget.style.borderColor = P.border}
                           >
-                            ✏️ Editar
+                            {j.emoji} ✏️
                           </button>
-                          {delId === burger.id ? (
-                            <button onClick={() => handleDelete(burger.id)} onMouseLeave={() => setDelId(null)}
-                              style={{ padding: "6px 14px", background: "rgba(178,34,34,.15)", border: `1px solid ${P.red}`, borderRadius: 7, color: P.red, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
-                              Confirmar borrado
-                            </button>
-                          ) : (
-                            <button onClick={() => setDelId(burger.id)}
-                              style={{ padding: "6px 14px", background: "transparent", border: `1px solid ${P.border}`, borderRadius: 7, color: P.muted, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
-                              onMouseEnter={e => { e.currentTarget.style.borderColor = P.red; e.currentTarget.style.color = P.red; }}
-                              onMouseLeave={e => { e.currentTarget.style.borderColor = P.border; e.currentTarget.style.color = P.muted; }}
-                            >
-                              🗑️ Borrar
-                            </button>
-                          )}
-                        </div>
+                        ))}
+                        <div style={{ flex: 1 }} />
+                        {delId === burger.id ? (
+                          <button onClick={() => handleDelete(burger.id)} onMouseLeave={() => setDelId(null)}
+                            style={{ padding: "5px 12px", background: "rgba(178,34,34,.15)", border: `1px solid ${P.red}`, borderRadius: 6, color: P.red, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                            Confirmar borrado
+                          </button>
+                        ) : (
+                          <button onClick={() => setDelId(burger.id)}
+                            style={{ padding: "5px 10px", background: "transparent", border: `1px solid ${P.border}`, borderRadius: 6, color: P.muted, fontSize: 11, fontWeight: 600, cursor: "pointer" }}
+                            onMouseEnter={e => { e.currentTarget.style.borderColor = P.red; e.currentTarget.style.color = P.red; }}
+                            onMouseLeave={e => { e.currentTarget.style.borderColor = P.border; e.currentTarget.style.color = P.muted; }}
+                          >
+                            🗑️
+                          </button>
+                        )}
                       </div>
                     </div>
                   );
