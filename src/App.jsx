@@ -37,7 +37,7 @@ async function pushRemote(burgers) {
 const JUDGES = [
   { id: "sira",   name: "Sira",   emoji: "👩🏻‍💻" },
   { id: "agusto", name: "Agusto", emoji: "🏋🏻‍♂️" },
-  { id: "valen",  name: "Valen",  emoji: "🧑🏻‍💻" },
+  { id: "valen",  name: "Valen",  emoji: "👨🏻‍💻" },
   { id: "male",   name: "Male",   emoji: "👩🏻‍⚕️" },
 ];
 
