@@ -384,6 +384,7 @@ export default function App() {
           {[
             { id: "agregar", icon: "➕", label: "Agregar" },
             { id: "tabla",   icon: "🏆", label: `Tabla${burgers.length ? ` · ${burgers.length}` : ""}` },
+            { id: "jurado",  icon: "🧑‍⚖️", label: "Jurado" },
           ].map(t => (
             <button key={t.id} className="mh-tab" onClick={() => setMainTab(t.id)} style={{
               flex: 1, padding: "14px 12px",
@@ -727,6 +728,89 @@ export default function App() {
             )}
           </div>
         )}
+
+        {/* ════════════════════════ JURADO ════════════════════════ */}
+        {mainTab === "jurado" && (() => {
+          const judgeStats = JUDGES.map(j => {
+            const scores = burgers.map(b => b.scores[j.id]).filter(v => v != null);
+            const avg    = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length * 100) / 100 : null;
+            const min    = scores.length ? Math.min(...scores) : null;
+            const max    = scores.length ? Math.max(...scores) : null;
+            return { ...j, scores, avg, min, max };
+          }).filter(j => j.scores.length > 0);
+
+          if (judgeStats.length === 0) {
+            return (
+              <div className="mh-in" style={{ textAlign: "center", padding: "80px 20px" }}>
+                <div style={{ fontSize: 48, marginBottom: 12 }}>🧑‍⚖️</div>
+                <p style={{ color: P.muted, fontStyle: "italic", fontFamily: "'Lora', serif" }}>
+                  Todavía no hay votos registrados.
+                </p>
+              </div>
+            );
+          }
+
+          const sorted      = [...judgeStats].sort((a, b) => (b.avg ?? 0) - (a.avg ?? 0));
+          const mostStrict  = [...judgeStats].sort((a, b) => (a.avg ?? 99) - (b.avg ?? 99))[0];
+          const mostGenerous = sorted[0];
+
+          return (
+            <div className="mh-in">
+              {/* Podio resumen */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 20 }}>
+                {[
+                  { label: "Más exigente", judge: mostStrict,  icon: "😤" },
+                  { label: "Más generoso", judge: mostGenerous, icon: "😄" },
+                ].map(({ label, judge, icon }) => (
+                  <div key={label} style={{ background: P.surface, border: `1px solid ${P.border}`, borderRadius: 12, padding: "14px", textAlign: "center" }}>
+                    <div style={{ fontSize: 20, marginBottom: 4 }}>{icon}</div>
+                    <div style={{ fontSize: 10, color: P.muted, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 6 }}>{label}</div>
+                    <div style={{ fontSize: 28, marginBottom: 4 }}>{judge.emoji}</div>
+                    <div style={{ fontFamily: "'Oswald', sans-serif", fontSize: 16, fontWeight: 700, color: P.gold, textTransform: "uppercase" }}>{judge.name}</div>
+                    <div style={{ fontSize: 13, color: P.muted, marginTop: 4 }}>prom. <span style={{ color: P.bone, fontWeight: 700 }}>{fmt(judge.avg)}</span></div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Cards por jurado */}
+              {sorted.map((j, i) => {
+                const { c, bg, b } = scoreGold(j.avg);
+                return (
+                  <div key={j.id} style={{
+                    background: P.surface, border: `1px solid ${P.border}`,
+                    borderLeft: `4px solid ${c}`,
+                    borderRadius: 12, marginBottom: 10, padding: "16px 18px",
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 14 }}>
+                      <span style={{ fontSize: 36 }}>{j.emoji}</span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontFamily: "'Oswald', sans-serif", fontSize: 20, fontWeight: 700, color: P.bone, textTransform: "uppercase", letterSpacing: 1 }}>{j.name}</div>
+                        <div style={{ fontSize: 12, color: P.muted }}>{j.scores.length} voto{j.scores.length !== 1 ? "s" : ""} emitido{j.scores.length !== 1 ? "s" : ""}</div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontSize: 11, color: P.muted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 1 }}>Promedio</div>
+                        <AvgBadge value={j.avg} big={false} />
+                      </div>
+                    </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+                      {[
+                        { label: "Más alto",  val: j.max, color: "#4ade80" },
+                        { label: "Más bajo",  val: j.min, color: P.red    },
+                        { label: "Promedio",  val: j.avg, color: c        },
+                      ].map(({ label, val, color }) => (
+                        <div key={label} style={{ background: "#1a1a1a", border: `1px solid ${P.border}`, borderRadius: 8, padding: "10px", textAlign: "center" }}>
+                          <div style={{ fontSize: 10, color: P.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>{label}</div>
+                          <div style={{ fontSize: 22, fontWeight: 800, color, fontFamily: "monospace" }}>{fmt(val)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
       </main>
     </div>
   );
