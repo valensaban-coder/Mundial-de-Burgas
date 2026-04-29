@@ -35,10 +35,10 @@ async function pushRemote(burgers) {
    Constants & helpers
 ───────────────────────────────────────── */
 const JUDGES = [
-  { id: "sira",   name: "Sira",   emoji: "👩‍⚖️" },
-  { id: "agusto", name: "Agusto", emoji: "🧔"   },
-  { id: "valen",  name: "Valen",  emoji: "🧑‍💻" },
-  { id: "male",   name: "Male",   emoji: "👩‍⚕️" },
+  { id: "sira",   name: "Sira",   emoji: "👩🏻‍💻" },
+  { id: "agusto", name: "Agusto", emoji: "🏋🏻‍♂️" },
+  { id: "valen",  name: "Valen",  emoji: "🧑🏻‍💻" },
+  { id: "male",   name: "Male",   emoji: "👩🏻‍⚕️" },
 ];
 
 const P = {
@@ -344,7 +344,7 @@ export default function App() {
         <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: `linear-gradient(90deg, transparent, ${P.gold}, transparent)` }} />
         <div style={{ fontSize: 48, marginBottom: 8, filter: "drop-shadow(0 0 16px rgba(212,175,55,.5))" }}>🍔</div>
         <div style={{ fontSize: 11, letterSpacing: 5, color: P.gold, textTransform: "uppercase", fontWeight: 500, marginBottom: 6 }}>
-          ⚽ Copa Jurado 2025 ⚽
+          🍔 Copa Jurado 2026 🍔
         </div>
         <h1 style={{
           fontFamily: "'Oswald', sans-serif",
